@@ -29,6 +29,7 @@
 #define	DVIPSFAILED 12			/* msg# if dvips failed */
 #define	SYCVTFAILED 13			/* msg# if system(convert) failed */
 #define	CONVERTFAILED 14		/* msg# if convert failed */
+#define	EMITFAILED 15
 
 /* ---
  * internal buffer sizes

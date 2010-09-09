@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include "mathex_string.h"
 #include "mathex_global.h"
+#include "mathex_main.h"
+#include "mathex.h"
 
 #define	MAXEMBEDDED 15			/* 1...#embedded images available */
 
