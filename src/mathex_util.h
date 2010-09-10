@@ -13,6 +13,7 @@
 #include "mathex_global.h"
 #include "mathex_main.h"
 #include "mathex.h"
+#include "mathex_resources.h"
 
 #define	MAXEMBEDDED 15			/* 1...#embedded images available */
 

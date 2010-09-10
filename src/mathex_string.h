@@ -38,5 +38,8 @@
 
 #define	WHITESPACE  " \t\n\r\f\v"	/* skipped whitespace chars */
 
+#define	skipwhite(thisstr)  if ( (thisstr) != NULL ) \
+	thisstr += strspn(thisstr,WHITESPACE)
+
 #endif	/* MATHEX_STRING_H */
 

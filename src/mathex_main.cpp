@@ -5,6 +5,8 @@
  * Created on 05 September 2010, 10:13
  */
 
+#include <stdio.h>
+#include <ctype.h>
 #include <cstdlib>
 #include <string.h>
 char	*strcasestr();
@@ -65,12 +67,13 @@ char	*expression = exprbuffer;	/* ptr to expression */
 char	*query = getenv("QUERY_STRING"); /* getenv("QUERY_STRING") result */
 int	isquery = 0;			/* true if input from QUERY_STRING */
 /* --- preprocess expression for special mathTeX directives, etc --- */
-char	*mathprep();			/* preprocess expression */
-int	unescape_url();			/* convert %20 to blank space, etc */
-int	strreplace(), irep=0;		/* look for keywords in expression */
+char	*mathprep(char *expression);			/* preprocess expression */
+int	unescape_url(char *url);        /* convert %20 to blank space, etc */
+int	strreplace(char *string, char *from, char *to,
+	int iscase, int nreplace ), irep=0;		/* look for keywords in expression */
 char	*strchange();			/* edit expression */
 char	*getdirective(), argstring[256]; /* look for \density, \usepackage */
-int	validate();			/* remove \input, etc */
+int	validate(char *expression);			/* remove \input, etc */
 int	advertisement(), crc16();	/*wrap expression in advertisement*/
 char	*adtemplate = NULL;		/* usually use default message */
 char	*nomath();			/* remove math chars from string */
@@ -87,10 +90,10 @@ struct	{ char *deny;			/* http_referer can't contain this */
 /* --- other initialization variables --- */
 char	*whichpath();			/* look for latex,dvipng,etc */
 int	setpaths();			/* set paths to latex,dvipng,etc */
-int	isstrstr();			/* find any snippet in string */
+int	isstrstr(char *string, char *snippets, int iscase );			/* find any snippet in string */
 int	isdexists();			/* check whether cache dir exists */
 int	perm_all = (S_IRWXU|S_IRWXG|S_IRWXO); /* 777 permissions */
-int	readcachefile(), nbytes=0;	/*read expr for -f command-line arg*/
+int	readcachefile(char *cachefile, unsigned char *buffer), nbytes=0;	/*read expr for -f command-line arg*/
 char	*timestamp();			/*for \time (in addition to \today)*/
 int	timelimit();			/* just to check stub or built-in */
 int	iscolorpackage = 0,		/* true if \usepackage{color} found*/
