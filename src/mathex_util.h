@@ -15,6 +15,20 @@
 #include "mathex.h"
 #include "mathex_resources.h"
 
+/* ---
+ * default uses locatepath() if whichpath() fails
+ * ---------------------------------------------- */
+#if !defined(NOWHICH)
+  #define ISWHICH 1
+#else
+  #define ISWHICH 0
+#endif
+#if !defined(NOLOCATE)
+  #define ISLOCATE 1
+#else
+  #define ISLOCATE 0
+#endif
+
 #define	MAXEMBEDDED 15			/* 1...#embedded images available */
 
 static	char *embeddedtext[] = { NULL,	/* text of embedded image messages */

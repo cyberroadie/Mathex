@@ -3,6 +3,29 @@
 #include <ctype.h>
 #include "mathex_util.h"
 
+/* ---
+ * windows-specific header info
+ * ---------------------------- */
+#if defined(WINDOWS)		/* Windows opens stdout in char mode, and */
+  #include <fcntl.h>		/* precedes every 0x0A with spurious 0x0D.*/
+  #include <io.h>		/* So emitcache() issues a Win _setmode() */
+				/* call to put stdout in binary mode. */
+  #if defined(_O_BINARY) && !defined(O_BINARY)  /* only have _O_BINARY */
+    #define O_BINARY _O_BINARY	/* make O_BINARY available, etc... */
+    #define setmode  _setmode
+    #define fileno   _fileno
+  #endif
+  #if defined(_O_BINARY) || defined(O_BINARY)  /* setmode() now available */
+    #define HAVE_SETMODE	/* so we'll use setmode() */
+  #endif
+#endif
+static	int iswindows =		/* 1 if running under Windows, or 0 if not */
+  #ifdef WINDOWS
+    1;				/* 1 when program running under Windows */
+  #else
+    0;				/* 0 when not running under Windows */
+  #endif
+
 unsigned char *embeddedimages ( int imagenum, int *nbytes, int *imgtype );
 
 /* ==========================================================================
@@ -370,5 +393,463 @@ end_of_job:
   return ( nbytes );			/* back with #bytes emitted */
 } /* --- end-of-function emitcache() --- */
 
+/* ==========================================================================
+ * Function:	advertisement ( expression, message )
+ * Purpose:	wrap expression in advertisement message
+ * --------------------------------------------------------------------------
+ * Arguments:	expression (I/O) pointer to null-terminated char string
+ *				containing expression to be "wrapped",
+ *				and returning wrapped expression
+ *		message (I)	pointer to null-terminated char string
+ *				containing template for advertisement
+ *				message, or NULL to use default message
+ * --------------------------------------------------------------------------
+ * Returns:	( int )		1 if successful, 0=error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+int	advertisement ( char *expression, char *message )
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+/* --- advertisement template --- */
+char  *adtemplate =
+	#if defined(ADVERTISEMENT)	/* cc -DADVERTISEMENT=\"filename\" */
+	  #include ADVERTISEMENT	/* filename with advertisement */
+	#else				/* formatted as illustrated below */
+	"\\begin{center}\n"
+	"\\fbox{$\\mbox{\\footnotesize\\LaTeX{} rendering courtesy of}\\atop\n"
+	"\\mbox{\\scriptsize http://www.forkosh.com/mathtex.html}$}\\\\ \n"
+	"\\vspace*{-4mm}\n"
+	" %%beginmath%% %%expression%% %%endmath%% \n"
+	"\\end{center}\n"
+	#endif
+	;				/* terminating semicolon */
+/* --- other variables --- */
+char	adbuffer[MAXEXPRSZ+2048];	/*construct wrapped expression here*/
+char	*beginmath[] = { "\\[", "$", " " }, /* start math mode */
+	*endmath[] =   { "\\]", "$", " " }; /* end math mode */
+int	strreplace(char *string, char *from, char *to,
+	int iscase, int nreplace);			/* replace %%keywords%% with values*/
+/* -------------------------------------------------------------------------
+wrap expression in advertisement
+-------------------------------------------------------------------------- */
+/* --- start with template --- */
+if ( isempty(message) )			/* caller didn't supply message */
+  message = adtemplate;			/* so use default message */
+strcpy(adbuffer,message);		/* copy message template to buffer */
+/* --- replace %%beginmath%%...%%endmath%% with \[...\] or with $...$ --- */
+  if ( mathmode<0 || mathmode>2 ) mathmode=0; /* out-of-bounds sanity check*/
+  if ( isempty(expression) ) mathmode = 2; /*ad only, no need for math mode*/
+  strreplace(adbuffer,"%%beginmath%%",beginmath[mathmode],1,0);
+  strreplace(adbuffer,"%%endmath%%",endmath[mathmode],1,0);
+/* --- replace %%expression%% in template with expression --- */
+  strreplace(adbuffer,"%%expression%%",expression,1,0);
+/* --- replace original expression --- */
+strcpy(expression,adbuffer);		/* expression mow wrapped in ad */
+mathmode = 2;				/* \[...\] already in expression */
+return ( 1 );				/* always just return 1 */
+} /* --- end-of-function advertisement() --- */
+
+/* ==========================================================================
+ * Function:	crc16 ( s )
+ * Purpose:	16-bit crc of string s
+ * --------------------------------------------------------------------------
+ * Arguments:	s (I)		pointer to null-terminated char string
+ *				whose crc is desired
+ * --------------------------------------------------------------------------
+ * Returns:	( int )		16-bit crc of s
+ * --------------------------------------------------------------------------
+ * Notes:     o	From Numerical Recipes in C, 2nd ed, page 900.
+ * ======================================================================= */
+/* --- entry point --- */
+int	crc16 ( char *s )
+{
+/* -------------------------------------------------------------------------
+Compute the crc
+-------------------------------------------------------------------------- */
+unsigned short crc = 0;			/* returned crc */
+int	ibit;				/* for(ibit) eight one-bit shifts */
+while ( !isempty(s) ) {			/* while there are still more chars*/
+  crc = (crc ^ (*s)<<8);		/* add next char */
+  for ( ibit=0; ibit<8; ibit++ )	/* generator polynomial */
+    if ( crc & 0x8000 ) { crc<<=1; crc=crc^4129; }
+    else crc <<= 1;
+  s++;					/* next xhar */
+  } /* --- end-of-while(!isempty(s)) --- */
+return ( (int)crc );			/* back to caller with crc */
+} /* --- end-of-function crc16() --- */
+
+/* ==========================================================================
+ * Function:	timelimit ( char *command, int killtime )
+ * Purpose:	Issues a system(command) call, but throttles command
+ *		after killtime seconds if it hasn't already completed.
+ * --------------------------------------------------------------------------
+ * Arguments:	command (I)	char * to null-terminated string
+ *				containing system(command) to be executed
+ *		killtime (I)	int containing maximum #seconds
+ *				to allow command to run
+ *				to array of returned arg strings
+ * --------------------------------------------------------------------------
+ * Returns:	( int )		return status from command,
+ *				or -1 for any error.
+ * --------------------------------------------------------------------------
+ * Notes:     o	The timelimit() code is adapted from
+ *		   http://devel.ringlet.net/sysutils/timelimit/
+ *		Compile with -DTIMELIMIT=\"$(which timelimit)\" to use an
+ *		installed copy of timelimit rather than this built-in code.
+ *	      o if symbol ISCOMPILETIMELIMIT is false, a stub function
+ *		that just issues system(command) is compiled instead.
+ * ======================================================================= */
+#if !ISCOMPILETIMELIMIT
+/* --- entry point for stub timelimit() function --- */
+int	timelimit(char *command, int killtime) {
+  if ( isempty(command) )		/* no command given */
+    return( (killtime==(-99)?991:(-1)) ); /* return -1 or stub identifier */
+  return ( system(command) ); }		/* just issue system(command) */
+#else
+/* --- entry points for signal handlers --- */
+void	sigchld(int sig)    { fdone  = 1; }
+void	sigalrm(int sig)    { falarm = 1; }
+void	sighandler(int sig) { sigcaught = sig; fsig = 1; }
+
+/* --- entry point --- */
+int	timelimit(char *command, int killtime)
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+pid_t	pid = 0;
+int	killsig = (int)(SIGKILL);
+int	setsignal(int sig, void (*handler)(int));
+int	status = (-1);
+/* -------------------------------------------------------------------------
+check args
+-------------------------------------------------------------------------- */
+if ( isempty(command) )			/* no command given */
+  return( (killtime==(-99)?992:(-1)) );	/* return -1 or built-in identifier*/
+if ( killtime < 1   ) return ( system(command) ); /* throttling disabled */
+if ( killtime > 999 ) killtime = 999;	/* default maximum to 999 seconds */
+/* -------------------------------------------------------------------------
+install signal handlers
+-------------------------------------------------------------------------- */
+fdone = falarm = fsig = sigcaught = 0;
+if ( setsignal(SIGALRM, sigalrm)    < 0 ) return(-1);
+if ( setsignal(SIGCHLD, sigchld)    < 0 ) return(-1);
+if ( setsignal(SIGTERM, sighandler) < 0 ) return(-1);
+if ( setsignal(SIGHUP,  sighandler) < 0 ) return(-1);
+if ( setsignal(SIGINT,  sighandler) < 0 ) return(-1);
+if ( setsignal(SIGQUIT, sighandler) < 0 ) return(-1);
+/* -------------------------------------------------------------------------
+fork off the child process
+-------------------------------------------------------------------------- */
+fflush(NULL);				/* flush all buffers before fork */
+if ( (pid=fork()) < 0 ) return(-1);	/* failed to fork */
+if ( pid == 0 ) {			/* child process... */
+  status = system(command);		/* ...submits command */
+  _exit(status); }			/* and _exits without user cleanup */
+/* -------------------------------------------------------------------------
+parent process sleeps for allowed time
+-------------------------------------------------------------------------- */
+alarm(killtime);
+while ( !(fdone||falarm||fsig) ) pause();
+alarm(0);
+/* -------------------------------------------------------------------------
+send kill signal if child hasn't completed command
+-------------------------------------------------------------------------- */
+if ( fsig )  return(-1);		/* some other signal stopped child */
+if ( !fdone ) kill(pid, killsig);	/* not done, so kill it */
+/* -------------------------------------------------------------------------
+return status of child pid
+-------------------------------------------------------------------------- */
+if ( waitpid(pid, &status, 0) == -1 ) return(-1); /* can't get status */
+if ( 1 ) return(status);		/* return status to caller */
+#if 0					/* interpret status */
+  if ( WIFEXITED(status) )
+	return (WEXITSTATUS(status));
+  else if ( WIFSIGNALED(status) )
+	return (WTERMSIG(status) + 128);
+  else
+	return (EX_OSERR);
+#endif
+} /* --- end-of-function timelimit() --- */
+
+/* --- entry point --- */
+int	setsignal ( int sig, void (*handler)(int) )
+{
+ #ifdef HAVE_SIGACTION
+    struct  sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = handler;
+    act.sa_flags = 0;
+    #ifdef SA_NOCLDSTOP
+      act.sa_flags |= SA_NOCLDSTOP;
+    #endif
+    if (sigaction(sig, &act, NULL) < 0) return(-1);
+ #else
+    if (signal(sig, handler) == SIG_ERR) return(-1);
+ #endif
+    return(0);
+} /* --- end-of-function setsignal() --- */
+#endif /* ISCOMPILETIMELIMIT */
 
 
+/* ==========================================================================
+ * Function:	makepath ( path, name, extension )
+ * Purpose:	return string containing path/name.extension
+ * --------------------------------------------------------------------------
+ * Arguments:	path (I)	pointer to null-terminated char string
+ *				containing "" path or path/ or NULL to
+ *				use cachepath if caching enabled
+ *		name (I)	pointer to null-terminated char string
+ *				containing filename but not .extension
+ *				of output file or NULL
+ *		extension (I)	pointer to null-terminated char string
+ *				containing extension or NULL
+ * --------------------------------------------------------------------------
+ * Returns:	( char * )	"cachepath/filename.extension" or NULL=error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+char	*makepath ( char *path, char *name, char *extension )
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+static	char namebuff[512];		/* buffer for constructed filename */
+char	*filename = NULL;		/*ptr to filename returned to caller*/
+/* -------------------------------------------------------------------------
+construct filename
+-------------------------------------------------------------------------- */
+/* --- validity checks --- */
+/*if ( isempty(name) ) goto end_of_job;*/ /* no name supplied by caller */
+/* --- start with caller's path/ or default path to cache directory --- */
+*namebuff = '\000';			/* re-init namebuff */
+if ( path == NULL ) {			/* use default path to cache */
+  if ( !isempty(cachepath) )		/* have a cache path */
+    strcpy(namebuff,cachepath); }	/* begin filename with path */
+else					/* or use caller's supplied path */
+  if ( *path != '\000' )		/* if it's not an empty string */
+    strcpy(namebuff,path);		/* begin filename with path */
+if ( !isempty(namebuff) )		/* have a leading path */
+  if ( !isthischar(lastchar(namebuff),"\\/") ) /* no \ or / at end of path */
+    strcat(namebuff,(iswindows?"\\":"/")); /* so add windows\ or unix/ */
+/* --- add name after path/ (name arg might just be a blank space) --- */
+if ( !isempty(name) ) {			/* name supplied by caller */
+  if ( !isempty(namebuff) )		/* and if we already have a path */
+    if ( isthischar(*name,"\\/") ) name++; /* skip leading \ or / in name */
+  strcat(namebuff,name); }		/* name concatanated after path/ */
+/* --- add extension after path/name */
+if ( !isempty(extension) ) {		/* have a filename extension */
+  if ( !isthischar(lastchar(namebuff),".") ) { /* no . at end of name */
+    if ( !isthischar(*extension,".") )	/* and extension has no leading . */
+      strcat(namebuff,".");		/* so we need to add our own . */
+    strcat(namebuff,extension); }	/* add extension after path/name. */
+  else					/* . already at end of name */
+    strcat(namebuff,			/* add extension without . */
+    (!isthischar(*extension,".")?extension:extension+1)); /*skip leading . */
+  } /* --- end-of-if(!isempty(extension)) --- */
+filename = namebuff;			/* successful name back to caller */
+/*end_of_job:*/
+  return ( filename );			/* back with name or NULL=error */
+} /* --- end-of-function makepath() --- */
+
+/* ==========================================================================
+ * Function:	isdexists ( dirname )
+ * Purpose:	check whether or not directory exists
+ * --------------------------------------------------------------------------
+ * Arguments:	dirname (I)	pointer to null-terminated char string
+ *				containing directory name to check for
+ * --------------------------------------------------------------------------
+ * Returns:	( int )		1 = directory exists, 0 = not
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+int	isdexists ( char *dirname )
+{
+int	status = 0;			/* init for non-existant dirname */
+if ( !isempty(dirname) ) {		/* must have directory name */
+  char	directory[512];			/* local copy of dirname */
+  DIR	*dp = NULL;			/* dp=opendir() opens directory */
+  strcpy(directory,dirname);		/* start with name given by caller */
+  if ( !isthischar(lastchar(directory),"/") ) /* no / at end of directory */
+    strcat(directory,"/");		/* so add one ourselves */
+  if ( (dp=opendir(directory)) != NULL ) { /* dirname exists */
+    status = 1;				/* so flip status */
+    closedir(dp); }			/* and close the directory */
+  } /* --- end-of-if(!isempty(dirname)) --- */
+return ( status );			/* tell caller if we found dirname */
+} /* --- end-of-function isdexists() --- */
+
+/* ==========================================================================
+ * Function:	setpaths ( method )
+ * Purpose:	try to set accurate paths for
+ *		latex,pdflatex,timelimit,dvipng,dvips,convert
+ * --------------------------------------------------------------------------
+ * Arguments:	method (I)	10*ltxmethod + imgmethod where
+ *				ltxmethod =
+ *				   1 for latex, 2 for pdflatex,
+ *				   0 for both
+ *				imgmethod =
+ *				   1 for dvipng, 2 for dvips/convert,
+ *				   0 for both
+ * --------------------------------------------------------------------------
+ * Returns:	( int )		1
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+int	setpaths ( int method )
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+char	*programpath=NULL, *whichpath(char *, int *); /* look for latex,dvipng,etc */
+int	nlocate = 0;			/*if which fails, #locate|grep hits*/
+int	ltxmethod = method/10,		/* divide by 10 */
+	imgmethod = method%10;		/* remainder after division by 10 */
+static	int islatexwhich=0, ispdflatexwhich=0,    /* set true after we try */
+	isdvipngwhich=0,    isdvipswhich=0,  /*whichpath() for that program*/
+	isconvertwhich=0,   istimelimitwhich=0;
+/* ---
+ * set paths, either from -DLATEX=\"path/latex\", etc, or call whichpath()
+ * ----------------------------------------------------------------------- */
+/* --- path for latex program --- */
+if ( ltxmethod==0 || ltxmethod==1 )	/* not needed for pdflatex only */
+ if ( !ISLATEXSWITCH && !islatexwhich ) { /* no -DLATEX=\"path/latex\" */
+  islatexwhich = 1;			/* signal that which already tried */
+  nlocate = ISLOCATE;			/* use locate if which fails??? */
+  if ( (programpath=whichpath("latex",&nlocate)) /* try to find latex path */
+  !=   NULL ) {				/* succeeded */
+    islatexpath = (nlocate==0?2:3);	/* set flag signalling which() */
+    strninit(latexpath,programpath,255); } }/* copy path from whichpath() */
+/* --- path for pdflatex program --- */
+if ( ltxmethod==0 || ltxmethod==2 )	/* not needed for latex only */
+ if ( !ISPDFLATEXSWITCH && !ispdflatexwhich ) { /*no -DPDFLATEX=\"pdflatex\"*/
+  ispdflatexwhich = 1;			/* signal that which already tried */
+  nlocate = ISLOCATE;			/* use locate if which fails??? */
+  if ( (programpath=whichpath("pdflatex",&nlocate)) /*try to find pdflatex*/
+  !=   NULL ) {				/* succeeded */
+    ispdflatexpath = (nlocate==0?2:3);	/* set flag signalling which() */
+    strninit(pdflatexpath,programpath,255); } }/*copy path from whichpath()*/
+/* --- path for timelimit program --- */
+if ( 0 )				/* only use explicit -DTIMELIMIT */
+ if ( warntime > 0 )			/* have -DWARNTIME or -DTIMELIMIT */
+  if ( !ISTIMELIMITSWITCH		/*no -DTIMELIMIT=\"path/timelimit\"*/
+  &&   !istimelimitwhich ) {
+    istimelimitwhich = 1;		/* signal that which already tried */
+    nlocate = ISLOCATE;			/* use locate if which fails??? */
+    if ( (programpath=whichpath("timelimit",&nlocate)) /* try to find path */
+    !=   NULL ) {			/* succeeded */
+      istimelimitpath = (nlocate==0?2:3); /* set flag signalling which() */
+      strninit(timelimitpath,programpath,255); } } /* copy from whichpath()*/
+/* --- path for dvipng program --- */
+if ( imgmethod != 2 )			/* not needed for dvips/convert */
+ if ( !ISDVIPNGSWITCH && !isdvipngwhich ) { /* no -DDVIPNG=\"path/dvipng\" */
+  isdvipngwhich = 1;			/* signal that which already tried */
+  nlocate = ISLOCATE;			/* use locate if which fails??? */
+  if ( (programpath=whichpath("dvipng",&nlocate)) /* try to find dvipng */
+  !=   NULL ) {				/* succeeded */
+    isdvipngpath = (nlocate==0?2:3);	/* set flag signalling which() */
+    strninit(dvipngpath,programpath,255); } }/*so copy path from whichpath()*/
+/* --- path for dvips program --- */
+if ( imgmethod != 1 )			/* not needed for dvipng */
+ if ( !ISDVIPSSWITCH && !isdvipswhich ) { /* no -DDVIPS=\"path/dvips\" */
+  isdvipswhich = 1;			/* signal that which already tried */
+  nlocate = ISLOCATE;			/* use locate if which fails??? */
+  if ( (programpath=whichpath("dvips",&nlocate)) /* try to find dvips path */
+  !=   NULL ) {				/* succeeded */
+    isdvipspath = (nlocate==0?2:3);	/* set flag signalling which() */
+    strninit(dvipspath,programpath,255); } }/* so copy path from whichpath()*/
+/* --- path for convert program --- */
+if ( imgmethod != 1 )			/* not needed for dvipng */
+ if ( !ISCONVERTSWITCH && !isconvertwhich ){/*no -DCONVERT=\"path/convert\"*/
+  isconvertwhich = 1;			/* signal that which already tried */
+  nlocate = ISLOCATE;			/* use locate if which fails??? */
+  if ( (programpath=whichpath("convert",&nlocate)) /* try to find convert */
+  !=   NULL ) {				/* succeeded */
+    isconvertpath = (nlocate==0?2:3);	/* set flag signalling which() */
+    strninit(convertpath,programpath,255); } } /*copy path from whichpath()*/
+/* --- adjust imagemethod to comply with available programs --- */
+if ( imgmethod != imagemethod		/* ignore recursive call */
+&&   imgmethod != 0 ) goto end_of_job;	/* but 0 is a call for both methods*/
+if ( imagemethod == 1 )			/* dvipng wanted */
+  if ( !isdvipngpath ) {		/* but we have no real path to it */
+    if ( imgmethod == 1 ) setpaths(2);	/* try to set dvips/convert paths */
+    if ( isdvipspath && isconvertpath )	{ /* and we do have dvips, convert */
+      imagemethod = 2;			/* so flip default to use them */
+      if ( !ISGAMMA ) strcpy(gamma,CONVERTGAMMA); } }/*default convert gamma*/
+if ( imagemethod == 2 )			/* dvips, convert wanted */
+  if ( !isdvipspath || !isconvertpath ) {/*but we have no real paths to them*/
+    if ( imgmethod == 2 ) setpaths(1);	/* try to set dvipng path */
+    if ( isdvipngpath ) {		/* and we do have dvipng path */
+      imagemethod = 1;			/* so flip default to use it */
+      if ( !ISGAMMA ) strcpy(gamma,DVIPNGGAMMA); } }/* default dvipng gamma */
+/* --- back to caller --- */
+end_of_job:
+  return ( 1 );
+} /* --- end-of-function setpaths() --- */
+
+/* ==========================================================================
+ * Function:	whichpath ( program, nlocate )
+ * Purpose:	determines the path to program with popen("which 'program'")
+ * --------------------------------------------------------------------------
+ * Arguments:	program (I)	pointer to null-terminated char string
+ *				containing program whose path is desired
+ *		nlocate (I/0)	addr of int containing NULL to ignore,
+ *				or (addr of int containing) 0 to *not*
+ *				use locate if which fails.  If non-zero,
+ *				use locate if which fails, and return
+ *				number of locate lines (if locate succeeds)
+ * --------------------------------------------------------------------------
+ * Returns:	( char * )	path to program, or NULL for any error
+ * --------------------------------------------------------------------------
+ * Notes:     o
+ * ======================================================================= */
+/* --- entry point --- */
+char	*whichpath ( char *program, int *nlocate )
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+static	char pathbuff[256];		/* buffer for returned path */
+char	command[256];			/* which program */
+FILE    *whichout = NULL;		/* which's stdout */
+int	nchars = 0,			/* read whichout one char at a time*/
+	pathchar;			/* fgetc(whichout) */
+char	*path = NULL;			/* either pathbuff or NULL=error */
+char	*locatepath(char *program, int *nlocate);			/* try locate if which fails */
+int	islocate = (nlocate==NULL? 1 : (*nlocate!=0?1:0)); /* 1=use locate*/
+/* -------------------------------------------------------------------------
+Issue which command and read its output
+-------------------------------------------------------------------------- */
+/* --- check if which() suppressed --- */
+if ( !ISWHICH ) return ( NULL );	/*not running which, return failure*/
+/* --- first construct the command --- */
+if ( isempty(program) ) goto end_of_job; /* no input */
+sprintf(command,"which %s",program);	/* construct command */
+/* --- use popen() to invoke which --- */
+whichout = popen( command, "r" );	/* issue which and capture stdout */
+if( whichout == NULL ) goto end_of_job;	/* failed */
+/* --- read the pipe one char at a time --- */
+while ( (pathchar=fgetc(whichout))	/* get one more char */
+!= EOF ) {				/* not at eof yet */
+  pathbuff[nchars] = (char)pathchar;	/* store the char */
+  if ( ++nchars >= 255 ) break; }	/* don't overflow buffer */
+pathbuff[nchars] = '\000';		/* null-terminate path */
+trimwhite(pathbuff);			/*remove leading/trailing whitespace*/
+/* --- pclose() waits for command to terminate --- */
+pclose( whichout );			/* finish */
+if ( nchars > 0 ) {			/* found path with which */
+  path = pathbuff;			/* give user successful path */
+  if ( islocate && nlocate!=NULL ) *nlocate = 0; } /* signal we used which */
+end_of_job:
+  if ( path == NULL )			/* which failed to find program */
+    if ( islocate )			/* and we're using locate */
+      path = locatepath(program,nlocate); /* try locate instead */
+  return ( path );			/* give caller path to command */
+} /* --- end-of-function whichpath() --- */

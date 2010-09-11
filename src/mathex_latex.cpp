@@ -263,3 +263,52 @@ showmsg(99,"mathprep expression",expression); /*show preprocessed expression*/
 end_of_job:
   return ( expression );
 } /* --- end-of-function mathprep() --- */
+
+/* ==========================================================================
+ * Function:	nomath ( s )
+ * Purpose:	Removes/replaces any LaTeX math chars in s
+ *		so that s can be rendered in paragraph mode.
+ * --------------------------------------------------------------------------
+ * Arguments:	s (I)		char * to null-terminated string
+ *				whose math chars are to be removed/replaced
+ * --------------------------------------------------------------------------
+ * Returns:	( char * )	ptr to "cleaned" copy of s
+ *				or "" (empty string) for any error.
+ * --------------------------------------------------------------------------
+ * Notes:     o	The returned pointer addresses a static buffer,
+ *		so don't call nomath() again until you're finished
+ *		with output from the preceding call.
+ * ======================================================================= */
+/* --- entry point --- */
+char	*nomath ( char *s )
+{
+/* -------------------------------------------------------------------------
+Allocations and Declarations
+-------------------------------------------------------------------------- */
+static	char sbuff[4096];		/* copy of s with no math chars */
+int	strreplace(char *string, char *from, char *to,
+	int iscase, int nreplace);			/* replace _ with -, etc */
+/* -------------------------------------------------------------------------
+Make a clean copy of s
+-------------------------------------------------------------------------- */
+/* --- check input --- */
+*sbuff = '\000';			/* initialize in case of error */
+if ( isempty(s) ) goto end_of_job;	/* no input */
+/* --- start with copy of s --- */
+strninit(sbuff,s,3000);			/* leave room for replacements */
+/* --- make some replacements (*must* replace \ first) --- */
+strreplace(sbuff,"\\","\\textbackslash ",0,0); /* change all \'s to text */
+strreplace(sbuff,"_","\\textunderscore ",0,0); /* change all _'s to text */
+strreplace(sbuff,"<","\\textlangle ",0,0); /* change all <'s to text */
+strreplace(sbuff,">","\\textrangle ",0,0); /* change all >'s to text */
+strreplace(sbuff,"$","\\textdollar ",0,0); /* change all $'s to text */
+strreplace(sbuff,"&","\\&",0,0);           /* change every & to \& */
+strreplace(sbuff,"%","\\%",0,0);           /* change every % to \% */
+strreplace(sbuff,"#","\\#",0,0);           /* change every # to \# */
+strreplace(sbuff,"~","\\~",0,0);           /* change every ~ to \~ */
+strreplace(sbuff,"{","\\{",0,0);           /* change every { to \{ */
+strreplace(sbuff,"}","\\}",0,0);           /* change every } to \} */
+strreplace(sbuff,"^","\\ensuremath{\\widehat{~}}",0,0); /* change every ^ */
+end_of_job:
+  return ( sbuff );			/* back with clean copy of s */
+} /* --- end-of-function nomath() --- */

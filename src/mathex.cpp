@@ -1,4 +1,6 @@
+#include <stdio.h>
 #include "mathex.h"
+
 
 /* ==========================================================================
  * Function:	mathtex ( expression, filename )

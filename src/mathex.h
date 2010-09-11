@@ -46,6 +46,9 @@
  * ------------------------ */
 static	char tempdir[256] = "\000";	/* temporary work directory */
 
+static	char optionalargs[8][512] =	/* buffer for optional args */
+  { "\000", "\000", "\000", "\000", "\000", "\000", "\000", "\000" };
+
 /* ---
  * compile (or not) built-in timelimit() code
  * ------------------------------------------ */

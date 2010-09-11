@@ -11,6 +11,7 @@
 #include <string.h>
 char	*strcasestr();
 #include "mathex_main.h"
+#include "mathex.h"
 #include "mathex_string.h"
 
 using namespace std;
@@ -61,6 +62,8 @@ int	main ( int argc, char *argv[] )
 Allocations and Declarations
 -------------------------------------------------------------------------- */
 /* --- expression to be emitted --- */
+int	emitembedded ( int imagenum, int isquery );
+char	*strwrap ( char *s, int linelen, int tablen );
 static	char exprbuffer[MAXEXPRSZ+1] = "\000"; /* input TeX expression */
 char	hashexpr[MAXEXPRSZ+1] = "\000";	/* usually use md5 of original expr*/
 char	*expression = exprbuffer;	/* ptr to expression */
@@ -71,12 +74,13 @@ char	*mathprep(char *expression);			/* preprocess expression */
 int	unescape_url(char *url);        /* convert %20 to blank space, etc */
 int	strreplace(char *string, char *from, char *to,
 	int iscase, int nreplace ), irep=0;		/* look for keywords in expression */
-char	*strchange();			/* edit expression */
-char	*getdirective(), argstring[256]; /* look for \density, \usepackage */
+char	*strchange(int nfirst, char *from, char *to);			/* edit expression */
+char	*getdirective(char *string, char *directive,
+	int iscase, int isvalid, int nargs, void *args), argstring[256]; /* look for \density, \usepackage */
 int	validate(char *expression);			/* remove \input, etc */
-int	advertisement(), crc16();	/*wrap expression in advertisement*/
+int	advertisement(char *expression, char *message), crc16( char *s);	/*wrap expression in advertisement*/
 char	*adtemplate = NULL;		/* usually use default message */
-char	*nomath();			/* remove math chars from string */
+char	*nomath( char *s);			/* remove math chars from string */
 /* --- referer initialization variables --- */
 char	*http_referer = getenv("HTTP_REFERER"); /* referer using mathTeX */
 int	isvalidreferer = 1;		/* can this referer use mathTeX? */
@@ -88,26 +92,26 @@ struct	{ char *deny;			/* http_referer can't contain this */
 	#endif
 	{ NULL, -999 } };		/* trailer */
 /* --- other initialization variables --- */
-char	*whichpath();			/* look for latex,dvipng,etc */
-int	setpaths();			/* set paths to latex,dvipng,etc */
+char	*whichpath( char *program, int *nlocate);			/* look for latex,dvipng,etc */
+int	setpaths(int method);			/* set paths to latex,dvipng,etc */
 int	isstrstr(char *string, char *snippets, int iscase );			/* find any snippet in string */
-int	isdexists();			/* check whether cache dir exists */
+int	isdexists( char *dirname );			/* check whether cache dir exists */
 int	perm_all = (S_IRWXU|S_IRWXG|S_IRWXO); /* 777 permissions */
 int	readcachefile(char *cachefile, unsigned char *buffer), nbytes=0;	/*read expr for -f command-line arg*/
-char	*timestamp();			/*for \time (in addition to \today)*/
-int	timelimit();			/* just to check stub or built-in */
+char	*timestamp(int tzdelta, int ifmt );			/*for \time (in addition to \today)*/
+int	timelimit(char *command, int killtime);			/* just to check stub or built-in */
 int	iscolorpackage = 0,		/* true if \usepackage{color} found*/
 	iseepicpackage = 0,		/* true if \usepackage{eepic} found*/
 	ispict2epackage = 0,		/* true if \usepackage{pict2e}found*/
 	ispreviewpackage = 0;		/* true if \usepackage{preview} */
 /* --- image rendering --- */
-int	mathtex();			/* generate new image using LaTeX */
+int	mathtex( char *expression, char *filename );			/* generate new image using LaTeX */
 /* --- image caching --- */
-int	emitcache();			/* emit cached image if it exists */
+int	emitcache(char *cachefile, int maxage, int isbuffer);			/* emit cached image if it exists */
 int	maxage = MAXAGE;		/* max-age is typically two hours */
-char	*makepath();			/* construct full path/filename.ext*/
-char	*md5str(), *md5hash=NULL;	/* md5 has of expression */
-int	mathlog();			/* log requests */
+char	*makepath( char *path, char *name, char *extension );			/* construct full path/filename.ext*/
+char	*md5str(char *instr), *md5hash=NULL;	/* md5 has of expression */
+int	mathlog(char *expression, char *filename);			/* log requests */
 /* --- messages --- */
 char	*copyright1 =			/* copyright, gnu/gpl notice */
  "+-----------------------------------------------------------------------+\n"
@@ -290,7 +294,7 @@ if ( !isvalidreferer ) {		/* invalid referer detected */
     msgnumber = 0;			/* default if out-of-bounds */
   strcpy(expression,invalid_referer_msg[msgnumber]); /* choose message */
   strreplace(expression,"%%referer%%",	/* replace actual referer */
-    (isempty(http_referer)?"your domain":nomath(http_referer)),0,0); }
+    const_cast<char *> (isempty(http_referer)?"your domain":nomath(http_referer)),0,0); }
 msgnumber = 0;				/* reset global message number */
 /* ---
  * check for embedded image \message directive (which supercedes everything)

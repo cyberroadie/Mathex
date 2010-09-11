@@ -4,6 +4,9 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8.0)
 SET(mathtex_SRCS
     src/mathex_global.h
     src/mathex_string.h
+    src/mathex_md5.cpp
+    src/mathex_time.cpp
+    src/mathex_log.cpp
     src/mathex_util.h
     src/mathex_util.cpp
     src/mathex_latex.cpp
